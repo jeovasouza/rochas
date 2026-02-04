@@ -1,4 +1,16 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+import os
+import glob
+
+# AGORA SIM você pode usar o @st.cache_data
 @st.cache_data
+def load_data():
+    
+    @st.cache_data
 def load_data():
     import os
     import glob
