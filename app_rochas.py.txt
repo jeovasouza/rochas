@@ -1,0 +1,85 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+import numpy as np
+
+# Configuração de Página Industrial
+st.set_page_config(page_title="Analytics Pro | Rochas", layout="wide")
+
+@st.cache_data
+def load_and_prep():
+    df = pd.read_csv('Dados brutos.xlsx - Plan1.csv')
+    # Limpeza Sênior
+    for col in ['Consumo Total', 'Custo Direto Unit.', 'CIF', 'Custo Padrão']:
+        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    
+    # Cálculo de métricas de eficiência
+    df['Custo_por_M2'] = (df['Custo Padrão'] / df['Consumo Total']).replace([np.inf, -np.inf], 0).fillna(0)
+    return df
+
+df = load_and_prep()
+
+# --- SIDEBAR: DESIGN & PARÂMETROS ---
+st.sidebar.title("🛠️ Painel de Controle")
+with st.sidebar.expander("🎨 Estilo & Design", expanded=True):
+    tema_ref = st.selectbox("Esquema de Cores", ["plotly_dark", "plotly_white", "seaborn"])
+    estilo_grafico = st.radio("Modelo de Gráfico", ["Barras", "Treemap", "Sunburst"])
+
+with st.sidebar.expander("🤖 Inteligência de Auditoria", expanded=True):
+    sensibilidade = st.slider("Sensibilidade da IA (Desvios)", 1.0, 3.0, 2.0)
+    st.caption("Ajuste para identificar produtos muito acima da média de custo.")
+
+# --- LÓGICA DE AUDITORIA (Z-SCORE) ---
+# Identificando produtos que custam significativamente mais que a média do processo
+df['Media_Processo'] = df.groupby('Complemento')['Custo_por_M2'].transform('mean')
+df['Desvio_Padrao'] = df.groupby('Complemento')['Custo_por_M2'].transform('std')
+df['Alerta_IA'] = df['Custo_por_M2'] > (df['Media_Processo'] + (sensibilidade * df['Desvio_Padrao']))
+
+# --- LAYOUT PRINCIPAL ---
+st.title("💎 Smart Factory Analytics")
+st.subheader("Gestão de Rochas Ornamentais & Detecção de Desvios")
+
+# KPIs de Gestão
+c1, c2, c3, c4 = st.columns(4)
+total_custo = df['Custo Padrão'].sum()
+outliers_count = df[df['Alerta_IA'] == True].shape[0]
+
+c1.metric("Custo Total Acumulado", f"R$ {total_custo:,.2f}")
+c2.metric("Eficiência Média (R$/m²)", f"R$ {df['Custo_por_M2'].mean():,.2f}")
+c3.metric("Itens Críticos (Outliers)", outliers_count, delta="Atenção Necessária", delta_color="inverse")
+c4.metric("Consumo Total", f"{df['Consumo Total'].sum():,.2f} m²")
+
+st.divider()
+
+# --- VISUALIZAÇÃO DE IMPACTO ---
+col_main, col_audit = st.columns([6, 4])
+
+with col_main:
+    st.markdown("### 📊 Visão Geral de Custos")
+    if estilo_grafico == "Barras":
+        fig = px.bar(df, x="Complemento", y="Custo Padrão", color="Classificação Insumos", template=tema_ref)
+    elif estilo_grafico == "Treemap":
+        fig = px.treemap(df, path=['Complemento', 'Classificação Insumos', 'Processo'], values='Custo Padrão', template=tema_ref)
+    else:
+        fig = px.sunburst(df, path=['Complemento', 'Classificação Insumos'], values='Custo Padrão', template=tema_ref)
+    st.plotly_chart(fig, use_container_width=True)
+
+with col_audit:
+    st.markdown("### 🚨 Auditoria Automática (IA)")
+    # Lista apenas os produtos que a IA identificou como "caros" demais para o padrão daquela máquina
+    df_alertas = df[df['Alerta_IA'] == True][['Código+Derivação', 'Complemento', 'Custo_por_M2', 'Media_Processo']].sort_values(by='Custo_por_M2', ascending=False)
+    
+    if not df_alertas.empty:
+        st.error(f"Encontrados {len(df_alertas)} itens com custo fora do padrão!")
+        st.dataframe(df_alertas, use_container_width=True, hide_index=True)
+    else:
+        st.success("Nenhum desvio crítico detectado nos processos atuais.")
+
+# --- ANALISE DE EFICIÊNCIA ---
+st.divider()
+st.markdown("### 📈 Dispersão: Custo vs. Consumo")
+fig_scatter = px.scatter(df, x="Consumo Total", y="Custo_por_M2", color="Complemento", 
+                         size="Custo Padrão", hover_name="Código+Derivação", 
+                         title="Análise de Eficiência por Lote", template=tema_ref)
+st.plotly_chart(fig_scatter, use_container_width=True)
